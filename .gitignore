@@ -1,0 +1,7 @@
+.venv/
+.DS_Store
+__pycache__/
+notebooks/bert_out/
+bert_out/
+.ipynb_checkpoints/
+output.png
