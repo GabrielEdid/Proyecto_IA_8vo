@@ -27,7 +27,7 @@ python3 -m venv --system-site-packages .venv
 
 ## Run
 
-Open `notebooks/sms_classification.ipynb` in Jupyter, select the **Python (sms-clf)** kernel, and run all cells.
+Open `notebooks/sms_classification.ipynb` in Jupyter, select the **Python (sms-clf)** kernel, and run all cells as a team.
 
 To execute from the command line:
 
