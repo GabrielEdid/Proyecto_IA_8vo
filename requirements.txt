@@ -3,12 +3,6 @@ numpy
 scikit-learn
 matplotlib
 seaborn
-xgboost
-wordcloud
-torch
-transformers
-accelerate
-datasets
 jupyter
 ipykernel
 nbconvert
