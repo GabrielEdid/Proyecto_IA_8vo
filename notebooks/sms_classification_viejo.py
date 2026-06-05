@@ -1,38 +1,6 @@
 # %% [markdown]
-# <div align="center">
+# # SMS Classification: Ham vs Spam vs Smishing
 # 
-# <img src="https://javier.rodriguez.org.mx/itesm/2014/tecnologico-de-monterrey-blue.png" width="500"/>
-# 
-# <br>
-# 
-# *Tec de Monterrey Campus Santa Fe*
-# 
-# <br>
-# 
-# *Desarrollo de aplicaciones avanzadas de ciencias computacionales (Gpo 502)*
-# 
-# <br>
-# 
-# *SMS Classification: Ham vs Spam vs Smishing*
-# 
-# <br>
-# 
-# *Profesor*<br>
-# Ahmed Imad Hammoodi AL-Jarah
-# 
-# <br>
-# 
-# *Alumnos*<br>
-# Juan Pablo Ruiz de Chávez Diez de Urdanivia A01783127<br>
-# Marcos Dayan Mann A01782876<br>
-# Gabriel Edid Harari A01782146
-# 
-# <br>
-# 
-# *Fecha de entrega*<br>
-# 04 de Junio del 2026
-
-# %% [markdown]
 # In this notebook, we build a model that classifies SMS messages into three classes:
 # - **ham**: normal legitimate message
 # - **spam**: unwanted promotional message
@@ -70,151 +38,14 @@ sns.set_theme(style='whitegrid')
 plt.rcParams['figure.dpi'] = 110
 
 # %% [markdown]
-# ## 2. Reconciliation of the different datasets
-# 
-# Instead of using a single dataset we will build a working dataset from **three real, publicly available SMS datasets** that were downloaded from the internet:
-# 
-# 1. **Mishra & Soni (2022)** — *SMS Phishing Dataset for Machine Learning and Pattern Recognition* (Mendeley, CC BY 4.0). It already contains the three classes (`ham`, `spam`, `smishing`) and is our main source. File: `data/raw/Dataset_5971_mishra_soni.csv`. URL: https://data.mendeley.com/datasets/f45bkkt8pr/1
-# 2. **UCI SMS Spam Collection** — the classic benchmark with `ham` and `spam` messages. File: `data/raw/sms_spam_collection_uci.csv`. URL: https://archive.ics.uci.edu/dataset/228/sms+spam+collection
-# 3. **Combined Smishing Dataset (Hosseinpour et al.)** — a large collection that consolidates several public sources, used here to reinforce the `smishing` and `spam` classes. File: `data/raw/combined_smishing_shaghayegh.csv`. URL: https://github.com/shaghayegh-hp/Smishing_Dataset
-# 
-# ### Why a reconciliation step is needed
-# The three files do **not** share the same structure:
-# 
-# | Source | Label column(s) | Text column | Label format |
-# |---|---|---|---|
-# | Mishra & Soni | `LABEL` | `TEXT` | `ham` / `spam` / `Smishing` (mixed case) |
-# | UCI | `v1` | `v2` | `ham` / `spam` |
-# | Combined | `spam label`, `smishing label` | `message` | binary flags (`0`/`1`) |
-# 
-# To merge them we have to **harmonize the schema**, **normalize the labels**, **rebuild the `URL` / `EMAIL` / `PHONE` indicators consistently**, **remove duplicates**, and **keep the classes roughly even** so no single class dominates training.
-# 
-# ### Reconciliation steps
-# 1. Load each source and rename its columns to a common `LABEL` / `TEXT` schema.
-# 2. Normalize every label to lowercase and map variants (`Smishing` → `smishing`, `Spam` → `spam`, the binary flags from the combined file to their class names).
-# 3. Keep only the three target classes and drop very short fragments (less than 20 characters), which are noise.
-# 4. Remove duplicate messages (case-insensitive, whitespace-normalized), including duplicates that appear across different sources.
-# 5. Compute the `URL`, `EMAIL`, and `PHONE` flags with the **same** regular expressions for every message, so the indicator columns are consistent across sources.
-# 6. Use **every available message** instead of downsampling to a fixed size. We keep all of the `ham` and `spam`, and cap only `smishing` (the majority class) to the `spam` count so it does not dominate. This produces a consolidated file of about **19,417 rows** (`ham` 5,133, `spam` 7,142, `smishing` 7,142).
-# 
-# The output is written to `data/Dataset_consolidated.csv`, which is the exact file the next section loads. The consolidation is the only thing that changes; every section after this one keeps working the same way, now on the larger consolidated dataset.
-
-# %%
-from pathlib import Path
-
-# Locate the folder that holds the raw datasets (handles both run locations).
-raw_candidates = [Path('../data/raw'), Path('data/raw')]
-RAW_DIR = next((p for p in raw_candidates if p.exists()), None)
-if RAW_DIR is None:
-    raise FileNotFoundError('The data/raw folder with the source datasets was not found.')
-
-# The consolidated file is written next to the raw folder (i.e. in the data folder).
-DATA_DIR = RAW_DIR.parent
-CONSOLIDATED_PATH = DATA_DIR / 'Dataset_consolidated.csv'
-
-# Regular expressions used to rebuild the URL / EMAIL / PHONE indicators.
-URL_RE = re.compile(r'(https?://\S+|www\.\S+)')
-EMAIL_RE = re.compile(r'\b[\w.+-]+@[\w-]+\.[\w.-]+\b')
-PHONE_RE = re.compile(r'(\+?\d[\d\-\s().]{6,}\d)')
-
-
-def flag(text, pattern):
-    return 'Yes' if pattern.search(str(text)) else 'No'
-
-
-def normalize_label(label):
-    label = str(label).strip().lower()
-    if label.startswith('smish'):
-        return 'smishing'
-    if label.startswith('spam'):
-        return 'spam'
-    if label.startswith('ham') or label in ('0', 'legitimate', 'normal'):
-        return 'ham'
-    return label
-
-
-frames = []
-
-# Source 1: Mishra & Soni (already 3 classes, mixed-case labels).
-mishra = pd.read_csv(RAW_DIR / 'Dataset_5971_mishra_soni.csv')[['LABEL', 'TEXT']]
-mishra['LABEL'] = mishra['LABEL'].map(normalize_label)
-mishra['source'] = 'mishra_soni'
-frames.append(mishra)
-
-# Source 2: UCI SMS Spam Collection (v1/v2 -> ham/spam).
-uci = pd.read_csv(RAW_DIR / 'sms_spam_collection_uci.csv', encoding='latin-1')[['v1', 'v2']]
-uci = uci.rename(columns={'v1': 'LABEL', 'v2': 'TEXT'})
-uci['LABEL'] = uci['LABEL'].map(normalize_label)
-uci['source'] = 'uci_sms'
-frames.append(uci)
-
-# Source 3: Combined dataset (binary flags -> smishing and spam).
-combined = pd.read_csv(RAW_DIR / 'combined_smishing_shaghayegh.csv')
-combined['message'] = combined['message'].astype(str)
-combined['spam label'] = combined['spam label'].astype(str).str.strip()
-
-comb_smish = combined[combined['smishing label'] == 1][['message']].rename(columns={'message': 'TEXT'})
-comb_smish['LABEL'] = 'smishing'
-comb_spam = combined[(combined['spam label'] == '1') & (combined['smishing label'] == 0)][['message']].rename(columns={'message': 'TEXT'})
-comb_spam['LABEL'] = 'spam'
-comb = pd.concat([comb_smish, comb_spam], ignore_index=True)
-comb['source'] = 'combined_smishing'
-frames.append(comb[['LABEL', 'TEXT', 'source']])
-
-# Merge all sources into a single table.
-merged = pd.concat(frames, ignore_index=True)
-print('Messages per source before cleaning:')
-print(merged['source'].value_counts())
-
-# Cleaning: keep target classes, trim text, drop short fragments.
-merged['TEXT'] = merged['TEXT'].astype(str).str.strip()
-merged = merged[merged['LABEL'].isin(['ham', 'spam', 'smishing'])]
-merged = merged[merged['TEXT'].str.len() >= 20]
-
-# Remove duplicates (case-insensitive, whitespace-normalized), including cross-source ones.
-normalized = merged['TEXT'].str.lower().str.replace(r'\s+', ' ', regex=True).str.strip()
-merged = merged[~normalized.duplicated()].reset_index(drop=True)
-
-print('\nMessages per class after cleaning and deduplication:')
-print(merged['LABEL'].value_counts())
-
-# Use every available message instead of downsampling to a fixed size.
-# Keep all of the ham and spam, and cap only smishing (the majority class)
-# to the spam count so it does not dominate the dataset.
-SMISHING_CAP = int((merged['LABEL'] == 'spam').sum())
-kept_parts = []
-for class_name in ['ham', 'spam', 'smishing']:
-    class_rows = merged[merged['LABEL'] == class_name]
-    if class_name == 'smishing' and len(class_rows) > SMISHING_CAP:
-        class_rows = class_rows.sample(n=SMISHING_CAP, random_state=SEED)
-    kept_parts.append(class_rows)
-
-balanced = pd.concat(kept_parts).sample(frac=1, random_state=SEED).reset_index(drop=True)
-
-# Rebuild the indicator columns consistently for every message.
-balanced['URL'] = balanced['TEXT'].apply(lambda t: flag(t, URL_RE))
-balanced['EMAIL'] = balanced['TEXT'].apply(lambda t: flag(t, EMAIL_RE))
-balanced['PHONE'] = balanced['TEXT'].apply(lambda t: flag(t, PHONE_RE))
-
-# Save with the exact schema and filename expected by the next section.
-consolidated = balanced[['LABEL', 'TEXT', 'URL', 'EMAIL', 'PHONE']]
-consolidated.to_csv(CONSOLIDATED_PATH, index=False)
-
-print('\nConsolidated dataset saved to:', CONSOLIDATED_PATH)
-print('Final shape:', consolidated.shape)
-print('Final class balance:', consolidated['LABEL'].value_counts().to_dict())
-consolidated.head()
-
-
-# %% [markdown]
-# ## 3. Load the dataset
+# ## 2. Load the dataset
 # 
 # The file contains the message text, its label, and three binary columns that indicate whether the original message contains a URL, email, or phone number.
 
 # %%
 possible_paths = [
-    Path('../data/Dataset_consolidated.csv'),
-    Path('data/Dataset_consolidated.csv'),
+    Path('../data/Dataset_10191.csv'),
+    Path('data/Dataset_10191.csv'),
 ] # depending on how you run the notebook, the dataset relative loation may be different
 
 DATA_PATH = None
@@ -224,7 +55,7 @@ for candidate in possible_paths:
         break
 
 if DATA_PATH is None:
-    raise FileNotFoundError('Dataset_consolidated.csv was not found.')
+    raise FileNotFoundError('Dataset_10191.csv was not found.')
 
 # Read the CSV file into a pandas DataFrame.
 df = pd.read_csv(DATA_PATH)
@@ -235,7 +66,7 @@ print('Columns:', list(df.columns))
 df.head()
 
 # %% [markdown]
-# ## 4. Exploratory data analysis
+# ## 3. Exploratory data analysis
 # 
 # Before training the models, it helps to inspect the dataset first:
 # - how many messages belong to each class
@@ -291,16 +122,17 @@ flag_summary.round(3)
 # %% [markdown]
 # ### Findings from the exploratory analysis
 # 
-# From the class count table, the dataset is close to balanced: about **7,142 spam**, **7,142 smishing**, and **5,133 ham** messages (around **19,417** in total). All of the available ham and spam are kept, and only smishing was capped to the spam count so it does not dominate. Because the classes are roughly even, macro F1 is a fair metric and the models are not strongly biased toward one label.
+# From the class count table, we can see that the dataset is perfectly balanced, with 3,397 messages for each label. This is useful because the models are not biased toward one class just because it appears more often.
 # 
-# From the message length and word count plots, we can see a clear difference between ham and the two malicious classes. Ham messages tend to be much shorter, with a median length around **55 characters** and **11 words**. In contrast, both spam and smishing are longer, with median lengths close to **132 to 138 characters** and median word counts around **22 to 23 words**.
+# From the message length and word count plots, we can see a clear difference between ham and the two malicious classes. Ham messages tend to be much shorter. Its median message length is about **52 characters** and its median word count is **11 words**. In contrast, both spam and smishing are much longer, with median lengths close to **145 to 147 characters** and median word counts around **24 words**.
 # 
-# The URL, email, and phone indicators show that **URLs are the strongest structural signal**. Ham messages almost never contain any of these elements (URL, phone, and email are all near 0%). Smishing has the highest URL rate at about **23.7%**, followed by spam at **14.8%**. Phone numbers are present but much less frequent than in the previous synthetic dataset (around **10.0%** of smishing and **8.6%** of spam), and email addresses are rare in every class. This matches the idea that many of these real-world malicious messages push the user to open a link.
+# The URL, email, and phone indicators also show an interesting pattern. Ham messages almost never contain these elements. Spam messages contain phones more often, but smishing has the strongest phone signal by far. Around **72.1%** of smishing messages contain a phone number, compared with **39.0%** in spam and almost none in ham. This matches the idea that many smishing messages try to push the user to call a number or contact a fake service.
 # 
-# Overall, the EDA suggests that ham is easier to separate, while the harder decision will probably be distinguishing **spam** from **smishing**, since both classes share suspicious language, longer message formats, and similar structural indicators.
+# Overall, the EDA suggests that ham is easier to separate, while the harder decision will probably be distinguishing **spam** from **smishing**, since both classes share suspicious language and longer message formats.
+# 
 
 # %% [markdown]
-# ## 5. Text preprocessing
+# ## 4. Text preprocessing
 # 
 # The model cannot use raw text directly, so we clean the messages first.
 # 
@@ -334,7 +166,7 @@ df['clean_text'] = df['TEXT'].apply(clean_text)
 df[['TEXT', 'clean_text']].head(5)
 
 # %% [markdown]
-# ## 6. Label encoding and numeric features
+# ## 5. Label encoding and numeric features
 # 
 # Scikit-learn models work with numeric labels, so the classes are converted from text into integers.
 # 
@@ -373,7 +205,7 @@ print('Label mapping:', dict(zip(LABEL_NAMES, range(len(LABEL_NAMES)))))
 df[FEATURE_COLS + ['LABEL', 'label']].head()
 
 # %% [markdown]
-# ## 7. Train/test split
+# ## 6. Train/test split
 # 
 # We separate the dataset into training and testing sets.
 # 
@@ -399,9 +231,9 @@ print('Training class counts:', np.bincount(y_train))
 print('Testing class counts:', np.bincount(y_test))
 
 # %% [markdown]
-# ## 8. Build the preprocessing pipeline
+# ## 7. Build the preprocessing pipeline
 # 
-# This is the main scikit-learn block we will use.
+# This is the main scikit-learn block used in the notebook.
 # 
 # ### `TfidfVectorizer`
 # This converts text into numeric vectors. Each message is represented by the words it contains, and TF-IDF gives more importance to words that are informative for classification.
@@ -452,13 +284,14 @@ models = {
 }
 
 # %% [markdown]
-# ## 9. Train the models
+# ## 8. Train the models
 # 
 # Here we train the three models and compare them with two metrics:
 # - **accuracy**: the proportion of correct predictions
 # - **macro F1**: the average F1 score across the three classes
 # 
-# Since the classes are close to balanced, macro F1 is a useful metric for comparing performance across all classes.
+# Since the dataset is balanced, macro F1 is a useful metric for comparing performance across all classes.
+# 
 
 # %%
 predictions = {}
@@ -488,7 +321,7 @@ results_df = pd.DataFrame(results).sort_values('macro_f1', ascending=False).rese
 results_df.round(4)
 
 # %% [markdown]
-# ## 10. Detailed evaluation
+# ## 9. Detailed evaluation
 # 
 # After training, we look at the results in more detail using:
 # - a classification report
@@ -535,7 +368,7 @@ ax = results_df.plot(kind='bar', x='model', y=['accuracy', 'macro_f1'], figsize=
 ax.set_title('Model comparison on the test set')
 ax.set_xlabel('Model')
 ax.set_ylabel('Score')
-ax.set_ylim(0.70, 1.00)
+ax.set_ylim(0.90, 1.00)
 plt.xticks(rotation=15)
 plt.tight_layout()
 plt.show()
@@ -546,16 +379,17 @@ print('Best model:', best_model_name)
 # %% [markdown]
 # ### Findings from the model comparison
 # 
-# The comparison table shows that the two linear models perform best and are almost tied: **Linear SVM** reaches a macro F1 of about **0.892** (accuracy **0.886**), with **Logistic Regression** right behind at macro F1 close to **0.889**. **Complement Naive Bayes** is clearly lower, around **0.812**.
+# The comparison table shows that all three models perform well, but **Linear SVM** gives the best result in this notebook, with test accuracy and macro F1 close to **0.979**. **Logistic Regression** comes next with macro F1 close to **0.968**, and **Complement Naive Bayes** is slightly lower, around **0.958**.
 # 
-# This tells us that the text patterns in the dataset can still be captured well with standard TF-IDF features. The scores are lower than on the previous synthetic dataset, which is expected: this consolidated dataset is larger and built from three different real-world sources, so the messages are more varied and harder to separate.
+# This tells us that the text patterns in the dataset can be captured very well with standard TF-IDF features. In other words, we do not need a very complex model to get strong results here.
 # 
-# From the classification reports and confusion matrices, we can also see that **ham** is the easiest class to classify (F1 around 0.94). The remaining mistakes are mostly between **spam** and **smishing** (each around F1 0.86), which makes sense because both types of messages can include offers, urgent language, links, phone numbers, or requests for action.
+# From the classification reports and confusion matrices, we can also see that **ham** is the easiest class to classify. The remaining mistakes are mostly between **spam** and **smishing**, which makes sense because both types of messages can include offers, urgent language, links, phone numbers, or requests for action.
 # 
-# A practical conclusion from this section is that **Linear SVM** is the best option for this notebook because it combines the highest scores with a workflow that is still easy to explain.
+# A practical conclusion from this section is that **Linear SVM** is the best option for this notebook because it combines high accuracy with a workflow that is still easy to explain.
+# 
 
 # %% [markdown]
-# ## 11. Try the best model with new example messages
+# ## 10. Try the best model with new example messages
 # 
 # This section tests the best model with a larger set of example messages that were not taken from the dataset.
 # 
@@ -618,16 +452,16 @@ pd.DataFrame({
 # 
 
 # %% [markdown]
-# ## 12. Conclusion
+# ## 11. Conclusion
 # 
 # By working on this project, we found and learned the following:
 # 
 # - For this dataset, **Logistic Regression** and **Linear SVM** are strong and easy to explain choices.
 # - `TF-IDF vectorizer` does a good job on encoding words to numerical features, since it considers term frequency and document frequency
-# - The dataset is close to balanced and has a good amount of examples (about 19,417 messages from three real public sources), so the model comparison is fair across the three classes.
-# - Smishing messages stand out because they contain URLs more often than the other classes (around 23.7%, compared with 14.8% for spam and almost none for ham).
+# - The dataset we chose is balanced and it has a good amount of examples, so the model comparison is fair across the three classes.
+# - Smishing messages stand out because they contain phone numbers much more often than the other classes.
 # - Although we initially thought Naive Bayes algorithm would excel on performance since this model is mainly used for natural language prediction and classification, the best result in this notebook comes from Linear SVM, which performs better than the other two models on the test set.
-# - Most of the remaining classification errors happen between spam and smishing, not between ham and the malicious classes. After analyzing some data examples, spam and smishing messages tend to be more similar than ham messages, because of the message structure and length, but also because of which words are used, and the context and combination of the words.
+# - Most of the remaining classification errors happen between spam and smishing, not between ham and the malicious classes. After analyzing some data examples, spam and smishing messages tend to me more similar than ham messages, because of the message structure and length, but also because of which words are used, and the context and combination of the words
 # - Future work on this would be to research on how can we distinguish and classify between two similar natural language content types, for example, between types of spam
 
 
