@@ -2,7 +2,7 @@
 
 ## Abstract
 
-Short message service (SMS) remains widely used for personal communication, service notifications, marketing, and account verification. At the same time, SMS is also used for unwanted advertising and smishing attacks, where attackers attempt to deceive recipients through phishing messages delivered by text. This paper presents a supervised machine learning workflow for multiclass SMS classification into three mutually exclusive categories: ham, spam, and smishing. The study uses a balanced dataset of 10,191 labeled SMS messages with raw text and binary indicators for URLs, email addresses, and phone numbers. The workflow includes variable understanding, exploratory data analysis, text normalization, numeric feature construction, label encoding, TF-IDF vectorization, model training, and evaluation. Three interpretable baseline models were compared: Complement Naive Bayes, Logistic Regression, and Linear Support Vector Machine (Linear SVM). Each model was trained inside a scikit-learn pipeline that combines text and numeric features while avoiding inconsistent preprocessing between training and testing. On the held-out test set, Linear SVM obtained the best performance, with 0.9789 accuracy and 0.9789 macro F1. Most remaining errors occurred between spam and smishing, while ham messages were classified with very high reliability. These results show that classical linear text classification models, when combined with TF-IDF and simple structural features, provide strong and explainable performance for SMS threat classification.
+Short message service (SMS) remains widely used for personal communication, service notifications, marketing, and account verification. At the same time, SMS is also used for unwanted advertising and smishing attacks, where attackers attempt to deceive recipients through phishing messages delivered by text. This paper presents a supervised machine learning workflow for multiclass SMS classification into three mutually exclusive categories: ham, spam, and smishing. The study uses a consolidated dataset of 19,417 labeled SMS messages, built by reconciling three real, publicly available SMS datasets, where each message has raw text and binary indicators for URLs, email addresses, and phone numbers. The workflow includes variable understanding, exploratory data analysis, text normalization, numeric feature construction, label encoding, TF-IDF vectorization, model training, and evaluation. Three interpretable baseline models were compared: Complement Naive Bayes, Logistic Regression, and Linear Support Vector Machine (Linear SVM). Each model was trained inside a scikit-learn pipeline that combines text and numeric features while avoiding inconsistent preprocessing between training and testing. On the held-out test set, Linear SVM obtained the best performance, with 0.8862 accuracy and 0.8915 macro F1. Most remaining errors occurred between spam and smishing, while ham messages were classified with high reliability. These results show that classical linear text classification models, when combined with TF-IDF and simple structural features, provide strong and explainable performance for SMS threat classification.
 
 **Keywords:** SMS classification, spam detection, smishing detection, TF-IDF, Logistic Regression, Complement Naive Bayes, Linear SVM, machine learning.
 
@@ -20,7 +20,15 @@ The project followed five main stages: understanding the dataset variables, anal
 
 ## II. Dataset and Variable Understanding
 
-The dataset used in the notebook is `Dataset_10191.csv`, obtained from Mendeley Data [1]. It contains 10,191 SMS messages and five original variables:
+The working dataset, `Dataset_consolidated.csv`, is built by reconciling three real, publicly available SMS datasets [1], [2], [3]. The three sources are summarized below:
+
+| Source | Original classes | Reference |
+|---|---|---|
+| Mishra & Soni (2022), Mendeley | ham, spam, smishing | [1] |
+| UCI SMS Spam Collection | ham, spam | [2] |
+| Combined Smishing Dataset (Hosseinpour et al.) | spam, smishing | [3] |
+
+Because the three files do not share the same schema or label format, a reconciliation step was applied: their columns were renamed to a common `LABEL` / `TEXT` schema, labels were normalized to lowercase and mapped to the three target classes, messages shorter than 20 characters were dropped, duplicate messages were removed (case-insensitive and whitespace-normalized, including duplicates that appear across sources), and the `URL`, `EMAIL`, and `PHONE` indicators were recomputed for every message with the same regular expressions. Finally, all available `ham` and `spam` messages were kept, while the majority class (`smishing`) was capped to the `spam` count so that no single class dominates training. The result is a consolidated file of 19,417 SMS messages with five variables:
 
 | Variable | Type | Meaning |
 |---|---:|---|
@@ -30,7 +38,7 @@ The dataset used in the notebook is `Dataset_10191.csv`, obtained from Mendeley 
 | `EMAIL` | binary categorical | Whether the message contains an email address (`Yes`/`No`). |
 | `PHONE` | binary categorical | Whether the message contains a phone number (`Yes`/`No`). |
 
-The dataset is balanced, with 3,397 examples per class. This balance is useful because accuracy is less likely to hide poor performance on a minority class. The notebook also created derived variables:
+The dataset is close to balanced, with 5,133 ham, 7,142 spam, and 7,142 smishing messages. Keeping the classes roughly even is useful because accuracy is less likely to hide poor performance on a minority class. The notebook also created derived variables:
 
 - `message_length`: number of characters in the raw message.
 - `word_count`: number of whitespace-separated words.
@@ -39,7 +47,7 @@ The dataset is balanced, with 3,397 examples per class. This balance is useful b
 - `exclamation_count`: number of exclamation marks.
 - `label`: numeric version of `LABEL`, generated with `LabelEncoder`.
 
-`LabelEncoder` converts string class names into integer targets required by scikit-learn estimators [2]. In this project, the mapping was:
+`LabelEncoder` converts string class names into integer targets required by scikit-learn estimators [4]. In this project, the mapping was:
 
 | Class | Encoded value |
 |---|---:|
@@ -57,27 +65,27 @@ Exploratory data analysis (EDA) was used to understand how the classes differ be
 
 | Class | Count |
 |---|---:|
-| ham | 3,397 |
-| spam | 3,397 |
-| smishing | 3,397 |
+| ham | 5,133 |
+| spam | 7,142 |
+| smishing | 7,142 |
 
-The dataset is perfectly balanced across the three labels. Message length and word count showed that ham messages were usually shorter than spam and smishing messages. Median values were:
+The dataset is close to balanced across the three labels. Message length and word count showed that ham messages were usually shorter than spam and smishing messages. Median values were:
 
 | Class | Median characters | Median words |
 |---|---:|---:|
-| ham | 52 | 11 |
-| spam | 145 | 24 |
-| smishing | 147 | 24 |
+| ham | 55 | 11 |
+| spam | 132 | 22 |
+| smishing | 138 | 23 |
 
 The binary URL, email, and phone indicators also showed meaningful differences:
 
 | Class | URL rate | Email rate | Phone rate |
 |---|---:|---:|---:|
-| ham | 0.000 | 0.002 | 0.001 |
-| spam | 0.046 | 0.032 | 0.390 |
-| smishing | 0.089 | 0.022 | 0.721 |
+| ham | 0.001 | 0.000 | 0.002 |
+| spam | 0.148 | 0.002 | 0.086 |
+| smishing | 0.237 | 0.003 | 0.100 |
 
-These results suggest that ham is easier to separate from the two suspicious classes. The more difficult distinction is between spam and smishing because both tend to be longer and may contain promotional, urgent, or action-oriented language. Smishing had the strongest phone-number signal, with 72.1% of messages containing a phone number.
+These results suggest that ham is easier to separate from the two suspicious classes. The more difficult distinction is between spam and smishing because both tend to be longer and may contain promotional, urgent, or action-oriented language. Among the structural indicators, the URL flag was the most discriminative: 23.7% of smishing and 14.8% of spam messages contained a URL, compared with almost none of the ham messages, while phone numbers appeared in only about 10.0% of smishing and 8.6% of spam messages.
 
 ### B. Text Cleaning
 
@@ -100,7 +108,7 @@ The notebook used both text features and simple structural features. The numeric
 - `digit_count`
 - `exclamation_count`
 
-These features are interpretable and relevant to the domain. Longer messages, more digits, and punctuation patterns may indicate promotional or phishing behavior. Numeric features were scaled with `MaxAbsScaler`, which is appropriate for sparse feature matrices because it scales by maximum absolute value without destroying sparsity [3].
+These features are interpretable and relevant to the domain. Longer messages, more digits, and punctuation patterns may indicate promotional or phishing behavior. Numeric features were scaled with `MaxAbsScaler`, which is appropriate for sparse feature matrices because it scales by maximum absolute value without destroying sparsity [4].
 
 ### D. Train-Test Split
 
@@ -108,16 +116,16 @@ The dataset was split into 80% training data and 20% test data:
 
 | Split | Samples | Class counts |
 |---|---:|---|
-| Training | 8,152 | `[2718, 2717, 2717]` |
-| Test | 2,039 | `[679, 680, 680]` |
+| Training | 15,533 | `[4106, 5713, 5714]` |
+| Test | 3,884 | `[1027, 1429, 1428]` |
 
-The split used `stratify=y`, meaning the class proportions were preserved in both training and test sets. This is important for fair multiclass evaluation.
+The class counts follow the encoded order `[ham, smishing, spam]`. The split used `stratify=y`, meaning the class proportions were preserved in both training and test sets. This is important for fair multiclass evaluation.
 
 ## IV. Machine Learning Model Creation
 
 ### A. TF-IDF Vectorization
 
-The main text representation was `TfidfVectorizer` [4]. TF-IDF means term frequency-inverse document frequency. It represents each message as a numeric vector where terms receive higher weight when they appear in a message but are not common across all messages. This reduces the importance of very frequent words and increases the importance of more discriminative words [5].
+The main text representation was `TfidfVectorizer` [4]. TF-IDF means term frequency-inverse document frequency. It represents each message as a numeric vector where terms receive higher weight when they appear in a message but are not common across all messages. This reduces the importance of very frequent words and increases the importance of more discriminative words.
 
 The vectorizer used:
 
@@ -133,13 +141,13 @@ The configuration has three important effects:
 
 ### B. ColumnTransformer
 
-The project used `ColumnTransformer` to apply different preprocessing to different columns [6]. The `clean_text` column was transformed with TF-IDF, while the numeric columns were scaled with `MaxAbsScaler`. The transformed outputs were then concatenated into one feature matrix.
+The project used `ColumnTransformer` to apply different preprocessing to different columns [4]. The `clean_text` column was transformed with TF-IDF, while the numeric columns were scaled with `MaxAbsScaler`. The transformed outputs were then concatenated into one feature matrix.
 
 This matters because text and numeric columns require different preprocessing. Applying TF-IDF to numeric columns or numeric scaling to raw text would be incorrect.
 
 ### C. Pipeline
 
-The preprocessing and classifier were combined with a scikit-learn `Pipeline` [6]. A pipeline stores a sequence of operations, such as:
+The preprocessing and classifier were combined with a scikit-learn `Pipeline` [4]. A pipeline stores a sequence of operations, such as:
 
 ```python
 Pipeline(
@@ -154,7 +162,7 @@ This design helps reproducibility and prevents preprocessing mistakes. During tr
 
 ### D. Complement Naive Bayes
 
-Complement Naive Bayes is a variant of Naive Bayes designed to improve text classification behavior, especially when class distributions or word distributions create poor estimates for standard Multinomial Naive Bayes [7], [8]. Instead of estimating class evidence only from examples inside a class, Complement Naive Bayes uses statistics from the complement of each class. In this project, it was configured as:
+Complement Naive Bayes is a variant of Naive Bayes designed to improve text classification behavior, especially when class distributions or word distributions create poor estimates for standard Multinomial Naive Bayes [4]. Instead of estimating class evidence only from examples inside a class, Complement Naive Bayes uses statistics from the complement of each class. In this project, it was configured as:
 
 ```python
 ComplementNB(alpha=0.5)
@@ -164,7 +172,7 @@ The parameter `alpha` applies smoothing, which avoids zero probabilities for uns
 
 ### E. Logistic Regression
 
-Logistic Regression is a linear classifier that learns a weight for each feature and estimates class membership using a logistic or softmax decision function [9]. Although the name contains "regression," in this context it is used for classification, not numerical prediction.
+Logistic Regression is a linear classifier that learns a weight for each feature and estimates class membership using a logistic or softmax decision function [4]. Although the name contains "regression," in this context it is used for classification, not numerical prediction.
 
 The notebook used:
 
@@ -172,33 +180,33 @@ The notebook used:
 LogisticRegression(max_iter=1000, random_state=SEED)
 ```
 
-For multiclass classification, Logistic Regression learns class-specific decision scores and assigns each message to the class with the strongest score. In scikit-learn, multiclass support is built into `LogisticRegression` for compatible solvers [9], [10]. This is different from **Linear Regression**, which predicts continuous numeric values and is not appropriate as the main model for this categorical SMS classification task.
+For multiclass classification, Logistic Regression learns class-specific decision scores and assigns each message to the class with the strongest score. In scikit-learn, multiclass support is built into `LogisticRegression` for compatible solvers [4]. This is different from **Linear Regression**, which predicts continuous numeric values and is not appropriate as the main model for this categorical SMS classification task.
 
 ### F. Linear Support Vector Machine
 
-Linear SVM learns separating hyperplanes between classes by maximizing the margin between examples near the decision boundary [11], [12]. It is especially useful for high-dimensional text data because TF-IDF creates many sparse features. The notebook used:
+Linear SVM learns separating hyperplanes between classes by maximizing the margin between examples near the decision boundary. It is especially useful for high-dimensional text data because TF-IDF creates many sparse features. The notebook used:
 
 ```python
 LinearSVC(random_state=SEED)
 ```
 
-`LinearSVC` supports multiclass classification with a one-vs-rest strategy, where one classifier is trained per class and the class with the highest decision score is selected [10], [13]. In this project, that means the model learns separate decision boundaries for ham vs. the rest, smishing vs. the rest, and spam vs. the rest.
+`LinearSVC` supports multiclass classification with a one-vs-rest strategy, where one classifier is trained per class and the class with the highest decision score is selected [4]. In this project, that means the model learns separate decision boundaries for ham vs. the rest, smishing vs. the rest, and spam vs. the rest.
 
 ## V. Model Evaluation and Interpretation
 
 ### A. Evaluation Metrics
 
-The notebook evaluated the models using accuracy, precision, recall, F1-score, macro F1, classification reports, and confusion matrices. Accuracy measures the overall proportion of correct predictions. F1-score combines precision and recall, and macro F1 averages the F1-score across classes equally [14]. Macro F1 was appropriate because the project needed good behavior across all three classes, not only high total accuracy.
+The notebook evaluated the models using accuracy, precision, recall, F1-score, macro F1, classification reports, and confusion matrices. Accuracy measures the overall proportion of correct predictions. F1-score combines precision and recall, and macro F1 averages the F1-score across classes equally [4]. Macro F1 was appropriate because the project needed good behavior across all three classes, not only high total accuracy.
 
 ### B. Overall Model Comparison
 
 | Model | Accuracy | Macro F1 |
 |---|---:|---:|
-| Linear SVM | 0.9789 | 0.9789 |
-| Logistic Regression | 0.9681 | 0.9682 |
-| Complement Naive Bayes | 0.9578 | 0.9580 |
+| Linear SVM | 0.8862 | 0.8915 |
+| Logistic Regression | 0.8834 | 0.8891 |
+| Complement Naive Bayes | 0.8043 | 0.8123 |
 
-All three models performed well, which indicates that the selected TF-IDF and structural features captured important class patterns. Linear SVM achieved the highest score and was selected as the best model in the notebook.
+The two linear models clearly led and were almost tied: Linear SVM achieved the highest score and was selected as the best model in the notebook, with Logistic Regression close behind. Complement Naive Bayes was noticeably weaker on this larger, more varied dataset. Because the consolidated dataset combines three different real-world sources, the messages are diverse and the spam/smishing boundary is genuinely hard, which keeps the scores realistic rather than inflated.
 
 ### C. Per-Class Classification Reports
 
@@ -206,27 +214,27 @@ All three models performed well, which indicates that the selected TF-IDF and st
 
 | Class | Precision | Recall | F1-score | Support |
 |---|---:|---:|---:|---:|
-| ham | 0.9970 | 0.9661 | 0.9813 | 679 |
-| smishing | 0.9289 | 0.9603 | 0.9443 | 680 |
-| spam | 0.9499 | 0.9471 | 0.9485 | 680 |
+| ham | 0.8720 | 0.9416 | 0.9054 | 1027 |
+| smishing | 0.7793 | 0.7782 | 0.7787 | 1429 |
+| spam | 0.7752 | 0.7318 | 0.7529 | 1428 |
 
 **Logistic Regression**
 
 | Class | Precision | Recall | F1-score | Support |
 |---|---:|---:|---:|---:|
-| ham | 0.9911 | 0.9867 | 0.9889 | 679 |
-| smishing | 0.9714 | 0.9485 | 0.9598 | 680 |
-| spam | 0.9428 | 0.9691 | 0.9558 | 680 |
+| ham | 0.9340 | 0.9640 | 0.9487 | 1027 |
+| smishing | 0.8966 | 0.8251 | 0.8593 | 1429 |
+| spam | 0.8363 | 0.8838 | 0.8594 | 1428 |
 
 **Linear SVM**
 
 | Class | Precision | Recall | F1-score | Support |
 |---|---:|---:|---:|---:|
-| ham | 1.0000 | 0.9971 | 0.9985 | 679 |
-| smishing | 0.9818 | 0.9544 | 0.9679 | 680 |
-| spam | 0.9558 | 0.9853 | 0.9703 | 680 |
+| ham | 0.9318 | 0.9581 | 0.9448 | 1027 |
+| smishing | 0.8983 | 0.8404 | 0.8684 | 1429 |
+| spam | 0.8431 | 0.8803 | 0.8613 | 1428 |
 
-The best model, Linear SVM, classified ham messages almost perfectly. It also performed strongly on spam and smishing, but its lower smishing recall shows that some smishing messages were predicted as spam.
+The best model, Linear SVM, classified ham messages most reliably (F1 0.9448). Its lower smishing recall (0.8404) shows that some smishing messages were predicted as spam.
 
 ### D. Confusion Matrix Interpretation
 
@@ -234,60 +242,38 @@ For Linear SVM, the confusion matrix was:
 
 | True class | Predicted ham | Predicted smishing | Predicted spam |
 |---|---:|---:|---:|
-| ham | 677 | 2 | 0 |
-| smishing | 0 | 649 | 31 |
-| spam | 0 | 10 | 670 |
+| ham | 984 | 13 | 30 |
+| smishing | 24 | 1201 | 204 |
+| spam | 48 | 123 | 1257 |
 
 The matrix shows three important patterns:
 
-1. Ham was rarely confused with malicious classes. Only 2 ham messages were predicted as smishing, and none were predicted as spam.
-2. The main error type was smishing predicted as spam: 31 smishing messages were classified as spam.
-3. Spam and smishing overlap more than ham and malicious messages. This matches the EDA findings because both spam and smishing are longer, may contain URLs or phone numbers, and often use persuasive or urgent language.
+1. Ham was rarely confused with malicious classes. Of 1,027 ham messages, 984 were correct, 13 were predicted as smishing, and 30 as spam.
+2. The largest single error type was smishing predicted as spam: 204 smishing messages were classified as spam.
+3. Spam and smishing overlap more than ham and the malicious classes (123 spam messages were also predicted as smishing). This matches the EDA findings because both spam and smishing are longer, may contain URLs or phone numbers, and often use persuasive or urgent language.
 
 ### E. Practical Interpretation
 
-The results suggest that classical ML models remain highly effective for this dataset. The strong Linear SVM result is expected for sparse text classification because linear margin-based models work well when each document is represented by many TF-IDF features [12]. Logistic Regression also performed strongly and has the advantage of probabilistic interpretation. Complement Naive Bayes was slightly weaker but remains useful as a simple and fast baseline.
+The results suggest that classical ML models remain effective for this dataset. The strong Linear SVM result is expected for sparse text classification because linear margin-based models work well when each document is represented by many TF-IDF features. Logistic Regression also performed strongly and has the advantage of probabilistic interpretation. Complement Naive Bayes was weaker on this consolidated dataset but remains useful as a simple and fast baseline.
 
 The model does not fully solve the semantic difference between spam and smishing. Spam and smishing can share phrases such as "congratulations," "offer," "account," "call now," or "verify." A future model could include more security-specific features, such as URL domain reputation, sender metadata, named entities, or contextual embeddings from transformer models.
 
 ## VI. Limitations
 
-This project has several limitations. First, the dataset is balanced, which is helpful for model training, but real-world SMS traffic is usually imbalanced, with ham messages appearing much more frequently than spam or smishing. Second, the dataset contains explicit URL, email, and phone indicators that may not always be available in production unless extracted reliably. Third, the model uses surface-level text and structural features, not deeper semantic or threat-intelligence features. Fourth, the notebook used a single train-test split; cross-validation could provide a more robust estimate of model stability. Finally, the dataset was generated or balanced using an LLM-assisted process according to its source description [1], so real-world generalization should be tested with independent live or naturally collected SMS data.
+This project has several limitations. First, the dataset was made close to balanced by capping the majority class; real-world SMS traffic is usually imbalanced, with ham messages appearing much more frequently than spam or smishing. Second, the dataset contains explicit URL, email, and phone indicators that may not always be available in production unless extracted reliably. Third, the model uses surface-level text and structural features, not deeper semantic or threat-intelligence features. Fourth, the notebook used a single train-test split; cross-validation could provide a more robust estimate of model stability. Finally, although the three source datasets are real and publicly available, they were collected through different processes and time periods, so real-world generalization should still be tested with independently collected live SMS data.
 
 ## VII. Conclusion
 
-This paper described an end-to-end SMS multiclass classification workflow for ham, spam, and smishing detection. The process began by understanding the dataset variables, then used exploratory analysis to identify class differences in length, words, URLs, emails, and phone numbers. The modeling pipeline cleaned the text, encoded labels, built numeric features, converted text into TF-IDF vectors, and trained three interpretable classifiers.
+This paper described an end-to-end SMS multiclass classification workflow for ham, spam, and smishing detection. The process began by reconciling three real public datasets and understanding the dataset variables, then used exploratory analysis to identify class differences in length, words, URLs, emails, and phone numbers. The modeling pipeline cleaned the text, encoded labels, built numeric features, converted text into TF-IDF vectors, and trained three interpretable classifiers.
 
-The best-performing model was Linear SVM, with 0.9789 accuracy and 0.9789 macro F1 on the held-out test set. The evaluation showed that ham messages were the easiest to classify, while spam and smishing were the most commonly confused classes. Overall, the project demonstrates that a well-prepared TF-IDF pipeline with classical linear models can provide strong, explainable SMS classification performance.
+The best-performing model was Linear SVM, with 0.8862 accuracy and 0.8915 macro F1 on the held-out test set. The evaluation showed that ham messages were the easiest to classify, while spam and smishing were the most commonly confused classes. Overall, the project demonstrates that a well-prepared TF-IDF pipeline with classical linear models can provide strong, explainable SMS classification performance on a realistic, multi-source dataset.
 
 ## References
 
-[1] M. Munoz and M. Islam, "A Balanced Dataset for Spam and Smishing Detection using Large Language Models (LLMs)," Mendeley Data, V1, 2025, doi: 10.17632/vmg875v4xs.1. [Online]. Available: https://data.mendeley.com/datasets/vmg875v4xs/1
+[1] S. Mishra and D. Soni, "SMS Phishing Dataset for Machine Learning and Pattern Recognition," Mendeley Data, 2022. [Online]. Available: https://data.mendeley.com/datasets/f45bkkt8pr/1
 
-[2] scikit-learn developers, "sklearn.preprocessing.LabelEncoder," scikit-learn documentation. [Online]. Available: https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.LabelEncoder.html
+[2] T. A. Almeida, J. M. G. Hidalgo, and A. Yamakami, "SMS Spam Collection," UCI Machine Learning Repository. [Online]. Available: https://archive.ics.uci.edu/dataset/228/sms+spam+collection
 
-[3] scikit-learn developers, "sklearn.preprocessing.MaxAbsScaler," scikit-learn documentation. [Online]. Available: https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.MaxAbsScaler.html
+[3] S. Hosseinpour *et al.*, "Combined Smishing Dataset," GitHub repository. [Online]. Available: https://github.com/shaghayegh-hp/Smishing_Dataset
 
-[4] scikit-learn developers, "sklearn.feature_extraction.text.TfidfVectorizer," scikit-learn documentation. [Online]. Available: https://scikit-learn.org/stable/modules/generated/sklearn.feature_extraction.text.TfidfVectorizer.html
-
-[5] G. Salton and C. Buckley, "Term-weighting approaches in automatic text retrieval," *Information Processing and Management*, vol. 24, no. 5, pp. 513-523, 1988.
-
-[6] scikit-learn developers, "Pipelines and composite estimators," scikit-learn documentation. [Online]. Available: https://scikit-learn.org/stable/modules/compose.html
-
-[7] scikit-learn developers, "Naive Bayes," scikit-learn documentation. [Online]. Available: https://scikit-learn.org/stable/modules/naive_bayes.html
-
-[8] J. D. Rennie, L. Shih, J. Teevan, and D. R. Karger, "Tackling the poor assumptions of Naive Bayes text classifiers," in *Proc. 20th International Conference on Machine Learning (ICML)*, 2003, pp. 616-623.
-
-[9] scikit-learn developers, "sklearn.linear_model.LogisticRegression," scikit-learn documentation. [Online]. Available: https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LogisticRegression.html
-
-[10] scikit-learn developers, "Multiclass and multioutput algorithms," scikit-learn documentation. [Online]. Available: https://scikit-learn.org/stable/modules/multiclass.html
-
-[11] C. Cortes and V. Vapnik, "Support-vector networks," *Machine Learning*, vol. 20, pp. 273-297, 1995.
-
-[12] T. Joachims, "Text categorization with support vector machines: Learning with many relevant features," in *Proc. European Conference on Machine Learning (ECML)*, 1998, pp. 137-142.
-
-[13] scikit-learn developers, "Support Vector Machines," scikit-learn documentation. [Online]. Available: https://scikit-learn.org/stable/modules/svm.html
-
-[14] scikit-learn developers, "Classification metrics," scikit-learn documentation. [Online]. Available: https://scikit-learn.org/stable/api/sklearn.metrics.html
-
-[15] F. Pedregosa *et al*., "Scikit-learn: Machine learning in Python," *Journal of Machine Learning Research*, vol. 12, pp. 2825-2830, 2011.
+[4] scikit-learn developers, "User Guide," scikit-learn documentation. [Online]. Available: https://scikit-learn.org/stable/user_guide.html
